@@ -6,3 +6,13 @@ edition = "2024"
 description = "Rust port of Shai-Hulud NPM Supply Chain Attack Detector"
 
 [dependencies]
+clap = { version = "4.5", features = ["derive"] }
+rayon = "1"
+console = "0.16.1"
+eros = "0.3"
+indicatif = { version = "0.18.0", features = ["rayon"] }
+itertools = "0.14.0"
+jwalk = "0.8"
+aho-corasick = "1"
+regex = "1"
+sha256 = "1.6"
