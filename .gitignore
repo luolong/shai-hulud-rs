@@ -4,3 +4,8 @@ target
 .claude
 scratch
 *.plan
+
+
+# Added by cargo
+
+/target
