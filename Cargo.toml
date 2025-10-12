@@ -1,0 +1,8 @@
+[package]
+name = "shai-hulud-detect"
+version = "0.1.0"
+edition = "2024"
+
+description = "Rust port of Shai-Hulud NPM Supply Chain Attack Detector"
+
+[dependencies]
