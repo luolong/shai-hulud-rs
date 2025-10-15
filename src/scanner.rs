@@ -17,6 +17,10 @@ impl Marker {
     pub(crate) fn mark(&mut self, index: usize) {
         self.0.push(index);
     }
+
+    pub(crate) fn markers(&self) -> Vec<usize> {
+        self.0.clone()
+    }
 }
 
 #[derive(Debug)]
@@ -43,6 +47,17 @@ impl DirEntry {
 
     pub(crate) fn mark(&mut self, index: usize) {
         let _ = &self.0.client_state.mark(index);
+    }
+
+    pub(crate) fn select<'a>(
+        &self,
+        probes: &'a [Box<dyn Probe>],
+    ) -> Vec<(&DirEntry, &'a Box<dyn Probe>)> {
+        let markers = self.0.client_state.markers();
+        markers
+            .into_iter()
+            .filter_map(|index| probes.get(index).map(|probe| (self, probe)))
+            .collect()
     }
 }
 
@@ -98,6 +113,12 @@ impl Scanner {
 
         println!("Marked {} files for scanning", marked.len());
 
-        Ok(vec![])
+        let mut findings = Vec::new();
+        for (entry, probe) in marked.iter().flat_map(|e| e.select(&self.probes)) {
+            let mut f = probe.scan(&entry)?;
+            findings.append(&mut f);
+        }
+
+        Ok(findings)
     }
 }
