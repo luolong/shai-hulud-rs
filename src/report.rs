@@ -1,113 +1,92 @@
-use console::style;
+use crate::probe::{Finding, Severity};
+use std::collections::HashMap;
+use std::path::PathBuf;
 
-use crate::probe::{Finding, FindingSeverity};
+pub mod console;
 
-macro_rules! print_status {
-    ("$RED", $message:expr) => {
-        println!("{}", style(format!($message)).red());
-    };
-    ("$BLUE", $message:literal) => {
-        println!("{}", style(format!($message)).blue());
-    };
-    ("$GREEN", $message:literal) => {
-        println!("{}", style(format!($message)).green());
-    };
-    ("$YELLOW", $message:literal) => {
-        println!("{}", style(format!($message)).yellow());
-    };
+#[derive(Debug, Default, Clone)]
+pub struct Stats {
+    pub high_risk: usize,
+    pub medium_risk: usize,
+    pub low_risk: usize,
 }
 
-/// Generate comprehensive security report with risk stratification and findings
-///
-pub(crate) fn generate_report(findings: &[Finding], paranoid: bool) -> eros::Result<()> {
-    println!();
-    print_status!("$BLUE", "==============================================");
-    if paranoid {
-        print_status!("$BLUE", "  SHAI-HULUD + PARANOID SECURITY REPORT");
-    } else {
-        print_status!("$BLUE", "      SHAI-HULUD DETECTION REPORT");
-    }
-    print_status!("$BLUE", "==============================================");
-    println!();
-
-    let mut high_risk = 0usize;
-    let mut medium_risk = 0usize;
-
-    let mut low_risk_findings: Vec<Finding> = Vec::with_capacity(findings.len());
-
-    for finding in findings {
-        match finding.severity() {
-            FindingSeverity::HighRisk => high_risk += 1,
-            FindingSeverity::MediumRisk => medium_risk += 1,
-            FindingSeverity::LowRisk => low_risk_findings.push(finding.clone()),
+impl Stats {
+    fn inc(&mut self, severity: &Severity) {
+        match severity {
+            Severity::LowRisk => self.low_risk += 1,
+            Severity::MediumRisk => self.medium_risk += 1,
+            Severity::HighRisk => self.high_risk += 1,
         }
     }
+}
 
-    let total_issues = high_risk + medium_risk;
-    let low_risk_count = low_risk_findings.len();
+#[derive(Debug)]
+pub struct ReportableFinding {
+    pub path: PathBuf,
+    pub message: String,
+    pub severity: Severity,
+    // pub payload_summary: Option<String>,
+}
 
-    print_status!("$BLUE", "==============================================");
-    if total_issues == 0 {
-        print_status!(
-            "$GREEN",
-            "✅ No indicators of Shai-Hulud compromise detected."
-        );
-        print_status!(
-            "$GREEN",
-            "Your system appears clean from this specific attack."
-        );
+#[derive(Debug)]
+pub struct ProbeResult {
+    pub probe_name: String,
+    pub findings: Vec<ReportableFinding>,
+}
 
-        if low_risk_count > 0 {
-            println!();
-            print_status!("$BLUE", "ℹ️  LOW RISK FINDINGS (informational only):");
-            for finding in low_risk_findings {
-                println!("   - {finding}");
-            }
-            println!(
-                "   {}",
-                style("NOTE: These are likely legitimate framework code or dependencies.").blue()
-            );
+#[derive(Debug)]
+pub struct Report {
+    pub stats: Stats,
+    pub results: Vec<ProbeResult>,
+}
+
+pub struct ReportBuilder {
+    findings: Vec<Finding>,
+}
+
+impl ReportBuilder {
+    pub fn new() -> Self {
+        Self {
+            findings: Vec::new(),
         }
-    } else {
-        print_status!("$RED", "🔍 SUMMARY:");
-        print_status!("$RED", "   High Risk Issues: {high_risk}");
-        print_status!("$YELLOW", "   Medium Risk Issues: {medium_risk}");
-        if low_risk_count > 0 {
-            print_status!("$BLUE", "   Low Risk (informational): {low_risk_count}");
-        }
-        print_status!("$BLUE", "   Total Critical Issues: {total_issues}");
-        println!();
-
-        print_status!("$YELLOW", "⚠️  IMPORTANT:");
-        print_status!(
-            "$YELLOW",
-            "   - High risk issues likely indicate actual compromise"
-        );
-        print_status!(
-            "$YELLOW",
-            "   - Medium risk issues require manual investigation"
-        );
-        print_status!(
-            "$YELLOW",
-            "   - Low risk issues are likely false positives from legitimate code"
-        );
-        if paranoid {
-            print_status!(
-                "$YELLOW",
-                "   - Issues marked (PARANOID) are general security checks, not Shai-Hulud specific"
-            );
-        }
-        print_status!("$YELLOW", "   - Consider running additional security scans");
-        print_status!(
-            "$YELLOW",
-            "   - Review your npm audit logs and package history"
-        );
     }
 
-    println!(
-        "{}",
-        style("==============================================").blue()
-    );
+    pub fn add_findings(&mut self, findings: Vec<Finding>) {
+        self.findings.extend(findings);
+    }
 
-    Ok(())
+    pub fn build(self) -> Report {
+        let mut stats = Stats::default();
+        let mut grouped: HashMap<String, Vec<ReportableFinding>> = HashMap::new();
+
+        for finding in self.findings {
+            stats.inc(&finding.severity);
+            let reportable = ReportableFinding {
+                path: finding.path,
+                message: finding.message,
+                severity: finding.severity,
+                // payload_summary: finding.payload.map(|p| p.summary()),
+            };
+            grouped
+                .entry(finding.probe_name)
+                .or_default()
+                .push(reportable);
+        }
+
+        let results = grouped
+            .into_iter()
+            .map(|(probe_name, findings)| ProbeResult {
+                probe_name,
+                findings,
+            })
+            .collect();
+
+        Report { stats, results }
+    }
+}
+
+/// Trait for a report generator.
+pub trait Reporter {
+    fn report(&self, report: &Report) -> eros::Result<()>;
 }

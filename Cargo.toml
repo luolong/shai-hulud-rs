@@ -6,13 +6,22 @@ edition = "2024"
 description = "Rust port of Shai-Hulud NPM Supply Chain Attack Detector"
 
 [dependencies]
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
 rayon = "1"
-console = "0.16.1"
-eros = "0.3"
-indicatif = { version = "0.18.0", features = ["rayon"] }
-itertools = "0.14.0"
-jwalk = "0.8"
+console = "0.16"
+itertools = "0.14"
 aho-corasick = "1"
 regex = "1"
-sha256 = "1.6"
+sha256 = "1"
+thiserror = "2"
+miette = { version = "7", features = ["fancy"] }
+eros = "0.5"
+jwalk = "0.8"
+num_cpus = "1"
+
+[dependencies.indicatif]
+     # Until indicatif releases a new version with correct duration after progress has finished
+     git = "https://github.com/Luolong/indicatif/"
+     #path = "../Luolong/indicatif/"
+     #version = "0.18"
+     features = ["rayon"]
