@@ -1,25 +1,48 @@
-use console::style;
+use console::Term;
 
-use crate::probe::{Finding, FindingSeverity};
+use crate::probe::Severity;
 
-macro_rules! print_status {
-    ("$RED", $message:expr) => {
-        println!("{}", style(format!($message)).red());
-    };
-    ("$BLUE", $message:literal) => {
-        println!("{}", style(format!($message)).blue());
-    };
-    ("$GREEN", $message:literal) => {
-        println!("{}", style(format!($message)).green());
-    };
-    ("$YELLOW", $message:literal) => {
-        println!("{}", style(format!($message)).yellow());
-    };
+#[derive(Debug, Default)]
+pub(crate) struct Stats {
+    high_risk: usize,
+    medium_risk: usize,
+    low_risk: usize,
 }
 
+impl Stats {
+    pub(crate) fn inc(&mut self, severity: Severity) {
+        match severity {
+            Severity::LowRisk => self.low_risk += 1,
+            Severity::MediumRisk => self.medium_risk += 1,
+            Severity::HighRisk => self.high_risk += 1,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct Report {
+    stats: Stats,
+}
+
+impl Report {
+    pub(crate) fn new() -> Self {
+        Report {
+            stats: Default::default(),
+        }
+    }
+}
+
+pub(crate) trait Output {
+    fn write(&self, term: Term);
+}
+
+/*
 /// Generate comprehensive security report with risk stratification and findings
 ///
-pub(crate) fn generate_report(findings: &[Finding], paranoid: bool) -> eros::Result<()> {
+pub(crate) fn generate_report(
+    findings: &[Box<Vec<Vec<dyn Finding>>>],
+    paranoid: bool,
+) -> eros::Result<()> {
     println!();
     print_status!("$BLUE", "==============================================");
     if paranoid {
@@ -40,6 +63,33 @@ pub(crate) fn generate_report(findings: &[Finding], paranoid: bool) -> eros::Res
             FindingSeverity::HighRisk => high_risk += 1,
             FindingSeverity::MediumRisk => medium_risk += 1,
             FindingSeverity::LowRisk => low_risk_findings.push(finding.clone()),
+        }
+
+        match finding.kind() {
+            FindingKind::WorkflowFile => workflow_files.push(finding.clone()),
+            FindingKind::MaliciousHash(hash) => {
+                malicious_hashes.push((finding.clone(), hash.to_owned()))
+            }
+        }
+    }
+
+    if !workflow_files.is_empty() {
+        print_status!(
+            "$RED" "🚨" HIGH RISK: "Malicious workflow files detected:"
+        );
+        for finding in workflow_files {
+            println!("   - {file}", file = &finding.path().display());
+            show_file_preview(&finding);
+        }
+    }
+
+    if !malicious_hashes.is_empty() {
+        println!();
+        print_status!("$RED" "🚨" HIGH RISK: "Files with known malicious hashes:");
+        for (finding, hash) in malicious_hashes {
+            println!("   - {file_path}", file_path = &finding.path().display());
+            println!("     Hashs: {hash}");
+            show_file_preview(&finding);
         }
     }
 
@@ -69,8 +119,8 @@ pub(crate) fn generate_report(findings: &[Finding], paranoid: bool) -> eros::Res
             );
         }
     } else {
-        print_status!("$RED", "🔍 SUMMARY:");
-        print_status!("$RED", "   High Risk Issues: {high_risk}");
+        print_status!("$RED" "🔍 SUMMARY:");
+        print_status!("$RED" "   High Risk Issues: {high_risk}");
         print_status!("$YELLOW", "   Medium Risk Issues: {medium_risk}");
         if low_risk_count > 0 {
             print_status!("$BLUE", "   Low Risk (informational): {low_risk_count}");
@@ -111,3 +161,4 @@ pub(crate) fn generate_report(findings: &[Finding], paranoid: bool) -> eros::Res
 
     Ok(())
 }
+ */

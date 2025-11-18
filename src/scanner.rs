@@ -1,33 +1,22 @@
 use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
 };
 
-use indicatif::{ProgressBar, ProgressFinish, ProgressIterator, ProgressStyle};
+use eros::{Context, bail};
+use indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressIterator};
+use itertools::Itertools;
 use jwalk::{Parallelism, WalkDirGeneric};
+use rayon::{ThreadPoolBuilder, iter::ParallelExtend};
 
-use crate::probe::{Finding, Probe};
+use crate::probe::Probe;
 
-const TICK_CHARS: &str = "🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🔍";
+pub(crate) struct DirEntry(jwalk::DirEntry<((), ())>);
 
-#[derive(Debug, Clone, Default)]
-pub struct Marker(Vec<usize>);
-
-impl Marker {
-    pub(crate) fn mark(&mut self, index: usize) {
-        self.0.push(index);
-    }
-
-    pub(crate) fn markers(&self) -> Vec<usize> {
-        self.0.clone()
-    }
-}
-
-#[derive(Debug)]
-pub struct DirEntry(jwalk::DirEntry<((), Marker)>);
-
-impl From<jwalk::DirEntry<((), Marker)>> for DirEntry {
-    fn from(entry: jwalk::DirEntry<((), Marker)>) -> Self {
+impl From<jwalk::DirEntry<((), ())>> for DirEntry {
+    fn from(entry: jwalk::DirEntry<((), ())>) -> Self {
         DirEntry(entry)
     }
 }
@@ -44,21 +33,6 @@ impl DirEntry {
     pub(crate) fn file_name(&self) -> &OsStr {
         self.0.file_name()
     }
-
-    pub(crate) fn mark(&mut self, index: usize) {
-        let _ = &self.0.client_state.mark(index);
-    }
-
-    pub(crate) fn select<'a>(
-        &self,
-        probes: &'a [Box<dyn Probe>],
-    ) -> Vec<(&DirEntry, &'a Box<dyn Probe>)> {
-        let markers = self.0.client_state.markers();
-        markers
-            .into_iter()
-            .filter_map(|index| probes.get(index).map(|probe| (self, probe)))
-            .collect()
-    }
 }
 
 pub(crate) struct Scanner {
@@ -71,54 +45,75 @@ impl Scanner {
     }
 
     pub(crate) fn scan<P: AsRef<Path>>(
-        &self,
+        &mut self,
         scan_dir: P,
         scan_message: impl Into<String>,
         parallelism: Option<usize>,
-    ) -> eros::Result<Vec<Finding>> {
-        let walker = WalkDirGeneric::<((), Marker)>::new(&scan_dir);
+    ) -> eros::Result<()> {
+        let mut pool = ThreadPoolBuilder::new();
+        pool = match parallelism {
+            Some(0) => bail!("Parallelism cannot be set to zero"),
+            Some(1) => pool.use_current_thread().num_threads(1),
+            Some(thread_count) => pool.num_threads(thread_count),
+            None => pool,
+        };
 
+        let pool = pool.build().context("Failed to build thread pool")?;
+        let pool = Arc::new(pool);
+
+        let busy_timeout = Some(Duration::from_millis(100));
+        let walker = WalkDirGeneric::<((), ())>::new(&scan_dir);
         let walker = match parallelism {
             Some(1) => walker.parallelism(Parallelism::Serial),
-            Some(p) => walker.parallelism(Parallelism::RayonNewPool(p)),
+            Some(_) => walker.parallelism(Parallelism::RayonExistingPool { pool, busy_timeout }),
             None => walker,
         };
 
         let scan_message = scan_message.into();
-        let walk_style = ProgressStyle::default_spinner()
-            .tick_chars(TICK_CHARS)
-            .template("{spinner} {msg:.blue}")
+        //let walk_style = crate::indikatif::spinners::dots13()
+        let walk_style = crate::indikatif::spinners::point()
+            .template("{msg:.blue} {spinner}")
             .unwrap();
 
-        let marked: Vec<DirEntry> = walker
+        let walk_progress = ProgressBar::new_spinner();
+        walk_progress.enable_steady_tick(Duration::from_millis(100));
+
+        let probe_indices: Vec<usize> = walker
             .into_iter()
-            .progress_with(ProgressBar::new_spinner())
+            .progress_with(walk_progress)
+            .with_prefix("📂")
             .with_message(scan_message.clone())
             .with_finish(ProgressFinish::AndLeave)
             .with_style(walk_style)
             .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                let mut entry = DirEntry::from(e);
-                let mut marked = false;
-                for (index, probe) in self.probes.iter().enumerate() {
+            .flat_map(|e| {
+                let mut probe_indices = Vec::with_capacity(self.probes.len());
+
+                let entry = DirEntry::from(e);
+                for (index, probe) in self.probes.iter_mut().enumerate() {
                     if probe.select(&entry) {
-                        entry.mark(index);
-                        marked = true;
+                        probe_indices.push(index);
                     }
                 }
 
-                if marked { Some(entry) } else { None }
+                probe_indices
             })
+            .unique()
             .collect();
 
-        println!("Marked {} files for scanning", marked.len());
-
+        let multi_progress = MultiProgress::new();
+        multi_progress.set_alignment(indicatif::MultiProgressAlignment::Bottom);
         let mut findings = Vec::new();
-        for (entry, probe) in marked.iter().flat_map(|e| e.select(&self.probes)) {
-            let mut f = probe.scan(&entry)?;
-            findings.append(&mut f);
-        }
+        rayon::scope(|_s| {
+            for probe_index in probe_indices {
+                let probe = &self.probes[probe_index];
+                let Ok(curent_findings) = probe.scan_suspects(&multi_progress) else {
+                    unreachable!("Really?")
+                };
+                findings.par_extend(curent_findings);
+            }
+        });
 
-        Ok(findings)
+        Ok(())
     }
 }

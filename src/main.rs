@@ -1,3 +1,4 @@
+mod indikatif;
 mod probe;
 mod report;
 mod scanner;
@@ -5,10 +6,12 @@ mod scanner;
 use std::path::PathBuf;
 
 use clap::Parser;
-use console::style;
+use console::{Term, style};
 use eros::{Context, bail};
 
-use crate::{probe::CheckWorkflowFiles, report::generate_report, scanner::Scanner};
+use crate::probe::{CheckFileHashes, CheckWorkflowFiles};
+use crate::report::Report;
+use crate::scanner::Scanner;
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
@@ -45,7 +48,8 @@ fn main() -> eros::Result<()> {
         .canonicalize()
         .context("Getting absolute path of directory to scan")?;
 
-    let scanner = Scanner::with_probes(vec![CheckWorkflowFiles::new()]);
+    let mut scanner = Scanner::with_probes(vec![CheckWorkflowFiles::new(), CheckFileHashes::new()]);
+    let mut report = Report::new();
 
     println!("{}", style("Starting Shai-Hulud detection scan...").green());
     let scan_message = if cli.paranoid {
@@ -57,9 +61,9 @@ fn main() -> eros::Result<()> {
         format!("Scanning directory: {}", scan_dir.display())
     };
 
-    let findings = scanner.scan(&scan_dir, scan_message, cli.parallelism)?;
-
-    generate_report(&findings, cli.paranoid)?;
-
+    scanner.scan(&scan_dir, scan_message, cli.parallelism)?;
+    
+    
+    
     Ok(())
 }
