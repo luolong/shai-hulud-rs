@@ -1,0 +1,11 @@
+(A) Implement Progress Reporting: Use indicatif for Pass 2 analysis progress bars, matching original script
+(B) Enhance Console Reporter: Display findings grouped by probe
+(B) Enhance Console Reporter: Integrate annotate-snippets for rich code context
+(C) Expand Probe Capabilities: Add new probes for other vulnerability types
+(D) Implement Additional Reporters: Add JsonReporter
+(D) Implement Additional Reporters: Add CsvReporter
+(D) Implement Additional Reporters: Add HtmlReporter
+(E) Port Test Suite: Re-implement run-tests.sh in cross-platform Rust
+(F) Add Unit & Integration Tests: Add tests for scanner and probe logic
+
+x 2026-01-10 Finalize Core Refactoring: Update main.rs to correctly pass ProbeFindings to the ReportBuilder

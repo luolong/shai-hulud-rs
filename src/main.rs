@@ -9,9 +9,7 @@ use clap::Parser;
 use console::style;
 use eros::{Context, bail};
 
-use crate::probe::{
-    Finding, check_file_hashes::CheckFileHashes, check_workflow_files::CheckWorkflowFiles,
-};
+use crate::probe::{check_file_hashes::CheckFileHashes, check_workflow_files::CheckWorkflowFiles};
 use crate::report::{ReportBuilder, Reporter, console::ConsoleReporter};
 use crate::scanner::Scanner;
 
@@ -71,11 +69,11 @@ fn main() -> eros::Result<()> {
         format!("Scanning directory: {}", scan_dir.display())
     };
 
-    let findings: Vec<Finding> = scanner.scan(&scan_dir, scan_message, cli.parallelism)?;
+    let probe_findings = scanner.scan(&scan_dir, scan_message, cli.parallelism)?;
 
     // Group findings by probe for reporting
     let mut report_builder = ReportBuilder::new();
-    report_builder.add_findings(findings);
+    report_builder.add_probe_findings(probe_findings);
     let report = report_builder.build();
 
     let reporter: Box<dyn Reporter> = match cli.output_file {

@@ -1,5 +1,5 @@
-use crate::probe::{Finding, Severity};
-use std::collections::HashMap;
+use crate::probe::Severity;
+use crate::scanner::ProbeFindings;
 use std::path::PathBuf;
 
 pub mod console;
@@ -42,7 +42,7 @@ pub struct Report {
 }
 
 pub struct ReportBuilder {
-    findings: Vec<Finding>,
+    findings: Vec<ProbeResult>,
 }
 
 impl ReportBuilder {
@@ -52,37 +52,36 @@ impl ReportBuilder {
         }
     }
 
-    pub fn add_findings(&mut self, findings: Vec<Finding>) {
-        self.findings.extend(findings);
+    pub fn add_probe_findings(&mut self, probe_findings: Vec<ProbeFindings>) {
+        for pf in probe_findings {
+            let findings = pf
+                .findings
+                .into_iter()
+                .map(|f| ReportableFinding {
+                    path: f.path,
+                    message: f.message,
+                    severity: f.severity,
+                })
+                .collect();
+
+            self.findings.push(ProbeResult {
+                probe_name: pf.probe_name,
+                findings,
+            });
+        }
     }
 
     pub fn build(self) -> Report {
         let mut stats = Stats::default();
-        let mut grouped: HashMap<String, Vec<ReportableFinding>> = HashMap::new();
-
-        for finding in self.findings {
-            stats.inc(&finding.severity);
-            let reportable = ReportableFinding {
-                path: finding.path,
-                message: finding.message,
-                severity: finding.severity,
-                // payload_summary: finding.payload.map(|p| p.summary()),
-            };
-            grouped
-                .entry(finding.probe_name)
-                .or_default()
-                .push(reportable);
+        for result in &self.findings {
+            for finding in &result.findings {
+                stats.inc(&finding.severity);
+            }
         }
-
-        let results = grouped
-            .into_iter()
-            .map(|(probe_name, findings)| ProbeResult {
-                probe_name,
-                findings,
-            })
-            .collect();
-
-        Report { stats, results }
+        Report {
+            stats,
+            results: self.findings,
+        }
     }
 }
 

@@ -1,8 +1,9 @@
 use crate::{
-    probe::{Finding, Payload, Probe, Severity},
+    probe::{Error, Finding, Payload, Probe},
     scanner::DirEntry,
 };
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::PathBuf;
 
 const MALICIOUS_HASHLIST: [&'static str; 9] = [
     "de0e25a3e6c1e1e5998b306b7141b3dc4c0088da9d7bb47c1c00c91e6e4f85d6",
@@ -16,17 +17,45 @@ const MALICIOUS_HASHLIST: [&'static str; 9] = [
     "aba1fcbd15c6ba6d9b96e34cec287660fff4a31632bf76f2a766c499f55ca1ee", // test-cases/multi-hash-detection/file2.js
 ];
 
-use std::fmt::{Debug, Formatter, Result};
+use std::fmt::{Debug, Formatter};
 
 pub struct MaliciousHash(String);
 
 impl Debug for MaliciousHash {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("MaliciousHash").field(&self.0).finish()
     }
 }
 
 impl Payload for MaliciousHash {}
+
+/// Errors that can occur during file hash checking
+#[derive(Debug, thiserror::Error)]
+pub enum HashCheckError {
+    #[error("Failed to read file: {0}")]
+    Io(#[from] io::Error),
+
+    #[error("Failed to compute hash: {0}")]
+    HashComputation(String),
+}
+
+/// Convert transient errors to low-risk findings
+impl TryFrom<HashCheckError> for Finding {
+    type Error = Error;
+
+    fn try_from(error: HashCheckError) -> Result<Finding, Error> {
+        match error {
+            HashCheckError::Io(io_err) => Ok(Finding::low_risk(
+                &PathBuf::from("<file>"),
+                &format!("Could not read file: {}", io_err),
+            )),
+            HashCheckError::HashComputation(msg) => Ok(Finding::low_risk(
+                &PathBuf::from("<file>"),
+                &format!("Could not compute hash: {}", msg),
+            )),
+        }
+    }
+}
 
 /// Scan files and compare SHA256 hashes against a known malicious hash list.
 pub struct CheckFileHashes {
@@ -43,6 +72,7 @@ impl CheckFileHashes {
 
 impl Probe for CheckFileHashes {
     type Suspect = PathBuf;
+    type Error = HashCheckError;
 
     fn name(&self) -> String {
         "Check malicious file hashes".to_owned()
@@ -62,26 +92,17 @@ impl Probe for CheckFileHashes {
         false
     }
 
-    fn scan(&self, suspect: &Self::Suspect) -> eros::Result<Vec<Finding>> {
+    fn scan(&self, suspect: &Self::Suspect) -> Result<Vec<Finding>, Self::Error> {
         let path = suspect;
-        let Ok(file_hash) = sha256::try_digest(path) else {
-            return Ok(vec![Finding::low_risk(
-                &self.name(),
-                path,
-                "Failed to compute SHA-256 hash",
-            )]);
-        };
+        let file_hash =
+            sha256::try_digest(path).map_err(|e| HashCheckError::HashComputation(e.to_string()))?;
 
         let mut findings = Vec::new();
         if MALICIOUS_HASHLIST.contains(&file_hash.as_str()) {
             let payload = MaliciousHash(file_hash);
             findings.push(
-                Finding::high_risk(
-                    &self.name(),
-                    path,
-                    "File matches known malicious SHA-256 hash",
-                )
-                .with_payload(Box::new(payload)),
+                Finding::high_risk(path, "File matches known malicious SHA-256 hash")
+                    .with_payload(Box::new(payload)),
             );
         }
         Ok(findings)

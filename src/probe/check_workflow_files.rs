@@ -1,8 +1,10 @@
 use crate::{
-    probe::{Finding, Probe, Severity},
+    probe::{Error, Finding, Probe},
     scanner::DirEntry,
 };
+use std::convert::Infallible;
 use std::path::PathBuf;
+use std::result::Result;
 
 /// Detect malicious shai-hulud-workflow.yml files in project directories
 pub struct CheckWorkflowFiles {
@@ -27,6 +29,7 @@ fn is_shai_hulud_workflow_file(entry: &DirEntry) -> bool {
 
 impl Probe for CheckWorkflowFiles {
     type Suspect = PathBuf;
+    type Error = Infallible;
 
     fn name(&self) -> String {
         "Checking for malicious workflow files".to_string()
@@ -41,9 +44,8 @@ impl Probe for CheckWorkflowFiles {
         }
     }
 
-    fn scan(&self, suspect: &Self::Suspect) -> eros::Result<Vec<Finding>> {
+    fn scan(&self, suspect: &Self::Suspect) -> Result<Vec<Finding>, Self::Error> {
         Ok(vec![Finding::high_risk(
-            &self.name(),
             suspect,
             "Malicious workflow file detected",
         )])
@@ -51,5 +53,14 @@ impl Probe for CheckWorkflowFiles {
 
     fn suspects(&self) -> &[Self::Suspect] {
         &self.suspects
+    }
+}
+
+/// Infallible errors never convert to findings (but also never occur)
+impl TryFrom<Infallible> for Finding {
+    type Error = Error;
+
+    fn try_from(_: Infallible) -> Result<Finding, Error> {
+        unreachable!("Infallible errors cannot occur")
     }
 }

@@ -105,41 +105,43 @@ All probes must implement the Probe trait.
 This trait uses an associated type, Suspect, to define what kind of item the probe is looking for.
 This is analogous to the Item associated type in Rust's Iterator trait.
 
+```rust
+pub trait Probe: Send + Sync {
+    /// The type of item this probe selects as a suspect for scanning.
+    type Suspect: Suspect;
 
-ust
-pub trait Probe {
-    type Suspect: Suspect; // The type of item this probe selects
+    /// The error type this probe can return from scanning.
+    type Error: Send + Sync + 'static;
 
+    /// Returns the human-readable name of the probe.
     fn name(&self) -> String;
-    fn select(&mut self, entry: &DirEntry) -> Option<Self::Suspect>;
-    fn scan(&self, suspect: &Self::Suspect) -> eros::Result<Vec<Finding>>;
+
+    /// Mark the directory entry to be scanned.
+    ///
+    /// This method should be designed to be as efficient as possible, avoiding unnecessary computation if possible.
+    /// Be as paranoid as possible, marking all files that might need to be scanned during the second pass.
+    ///
+    /// Return true if the entry was selected to be scanned by the probe, false otherwise.
+    fn select(&mut self, entry: &DirEntry) -> bool;
+
+    /// Performs the intensive scan on a single suspect item and returns any number of findings that are discovered.
+    fn scan(&self, suspect: &Self::Suspect) -> Result<Vec<Finding>, Self::Error>;
+
+    /// Returns a slice of the suspects collected by the probe during the selection pass.
+    fn suspects(&self) -> &[Self::Suspect];
 }
-
-
+```
 While most probes will use PathBuf as their Suspect type, this generic design allows future probes to define more complex suspect structures (e.g., a struct containing multiple related file paths) without any changes to the Scanner.
 
-### 3.2. State Management and IntoIterator
+### 3.2. State Management
+
+
 
 Each Probe instance is designed to be stateful during the selection pass.
-It is responsible for maintaining its own internal list of the Suspects it has selected.
 
-To cleanly hand this list over to the Scanner for the analysis pass, each probe struct must also implement the IntoIterator trait.
+It is responsible for maintaining its own internal list of selected Suspects.
 
-
-ust
-// Example for a probe that collects PathBufs
-impl IntoIterator for MyProbe {
-    type Item = PathBuf;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.suspects.into_iter()
-    }
-}
-
-
-This allows the Scanner to consume the probe and take ownership of its suspects by simply using it in a or loop.
-This elegantly and idiomatically separates the stateful selection pass from the stateless analysis pass.
+It exposes the list of selected suspects via public `suspects` method.
 
 ### 3.3. The scan Method
 
@@ -156,7 +158,22 @@ Crucially, a `Finding` will also contain an optional `Payload` that adds rich co
 
 This allows the final Reporter to present detailed, actionable information to the user without being explicitly aware of each and every individual `Probe` implementation details.
 
-## Reporters
+## 4. Error Handling
+
+A probe's scanning logic focuses purely on detection of vulnerabilities.
+Unrecoverable failures to complete the scan are reported by returning an error result.
+Each probe defines its own specific `Error` type via an associated type on the `Probe` trait.
+
+### 4.1. The `TryFrom<Error>` Conversion Pattern
+
+Errors returned from Probe::scan method can be transient (i.e. they may affect only _some_ of the scanned resources) or fatal (as in making it unfeasible for a probe to continue scanning).
+
+When scanner encounters an error response from the probe, it attempts to convert the error into a `Finding` using the `TryFrom<Error>` conversion pattern.
+
+If the error can be converted into a `Finding`, it is added to the list of findings.
+Otherwise, the entire scan for this probe should be aborted.
+
+## 5. Reporters
 
 Reporters implement various vulnerability reporting strategies.
 

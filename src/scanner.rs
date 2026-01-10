@@ -1,18 +1,19 @@
-use crate::probe::{Finding, Probe, Suspect};
-use eros::{Context, bail};
+use crate::probe::{Error, Finding, Probe};
+use eros::{Context, TracedError, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressIterator};
 use itertools::Itertools;
 use jwalk::{Parallelism, WalkDirGeneric};
 use num_cpus;
 use rayon::{ThreadPoolBuilder, prelude::*};
-use std::{
-    ffi::OsStr,
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::{path::Path, time::Duration};
 
 use std::ops::Deref;
+
+/// A collection of findings reported by a single probe.
+pub(crate) struct ProbeFindings {
+    pub probe_name: String,
+    pub findings: Vec<Finding>,
+}
 
 pub(crate) struct DirEntry(jwalk::DirEntry<((), ())>);
 
@@ -30,12 +31,52 @@ impl From<jwalk::DirEntry<((), ())>> for DirEntry {
     }
 }
 
+/// Internal trait to handle different error types generically
+pub(crate) trait ProbeAdapter: Send + Sync {
+    fn select(&mut self, entry: &DirEntry) -> bool;
+    fn scan_all_suspects(&self) -> eros::Result<ProbeFindings>;
+}
+
+// Blanket implementation for ALL probes whose Error can convert to Finding
+impl<P> ProbeAdapter for P
+where
+    P: Probe,
+    Finding: TryFrom<P::Error, Error = Error>,
+{
+    fn select(&mut self, entry: &DirEntry) -> bool {
+        Probe::select(self, entry)
+    }
+
+    fn scan_all_suspects(&self) -> eros::Result<ProbeFindings> {
+        let findings = self
+            .suspects()
+            .par_iter()
+            .map(|suspect| {
+                self.scan(suspect).or_else(|e| {
+                    // Try to convert the probe-specific error into a Finding
+                    Finding::try_from(e)
+                        // If conversion succeeds, wrap it in a Vec and treat as Ok
+                        .map(|finding| vec![finding])
+                        // If conversion fails, the original error is fatal
+                        .map_err(TracedError::from)
+                })
+            })
+            // Collect the results. `?` will propagate the first fatal error.
+            .collect::<eros::Result<Vec<Vec<Finding>>>>()?;
+
+        Ok(ProbeFindings {
+            probe_name: self.name(),
+            findings: findings.into_iter().flatten().collect(),
+        })
+    }
+}
+
 pub(crate) struct Scanner {
-    probes: Vec<Box<dyn Probe<Suspect = PathBuf>>>,
+    probes: Vec<Box<dyn ProbeAdapter>>,
 }
 
 impl Scanner {
-    pub fn with_probes(probes: Vec<Box<dyn Probe<Suspect = PathBuf>>>) -> Self {
+    pub fn with_probes(probes: Vec<Box<dyn ProbeAdapter>>) -> Self {
         Scanner { probes }
     }
 
@@ -44,7 +85,7 @@ impl Scanner {
         scan_dir: P,
         scan_message: impl Into<String> + Send,
         parallelism: Option<usize>,
-    ) -> eros::Result<Vec<Finding>> {
+    ) -> eros::Result<Vec<ProbeFindings>> {
         let num_threads = parallelism.unwrap_or_else(num_cpus::get);
         if num_threads == 0 {
             bail!("Parallelism cannot be set to zero");
@@ -100,20 +141,10 @@ impl Scanner {
             let multi_progress = MultiProgress::new();
             multi_progress.set_alignment(indicatif::MultiProgressAlignment::Bottom);
 
-            let findings: Vec<Finding> = active_probe_indices
+            let findings: Vec<ProbeFindings> = active_probe_indices
                 .par_iter()
-                .flat_map(|&index| {
-                    let probe = &self.probes[index];
-                    probe
-                        .suspects()
-                        .par_iter()
-                        .map(move |suspect| match probe.scan(suspect) {
-                            Ok(findings) => findings,
-                            Err(_) => Vec::new(), // Decide on error handling
-                        })
-                        .flatten()
-                })
-                .collect();
+                .map(|&index| self.probes[index].scan_all_suspects())
+                .collect::<eros::Result<Vec<ProbeFindings>>>()?;
 
             Ok(findings)
         })
