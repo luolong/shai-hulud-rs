@@ -1,3 +1,4 @@
+(A) Implement Error handling: Use exn for user visible error reporting
 (A) Implement Progress Reporting: Use indicatif for Pass 2 analysis progress bars, matching original script
 (B) Enhance Console Reporter: Display findings grouped by probe
 (B) Enhance Console Reporter: Integrate annotate-snippets for rich code context

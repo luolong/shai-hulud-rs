@@ -1,5 +1,5 @@
 use crate::{
-    probe::{Error, Finding, Payload, Probe},
+    probe::{Error, Finding, Metadata, Payload, Probe, ProgressMeta},
     scanner::DirEntry,
 };
 use std::io;
@@ -18,6 +18,8 @@ const MALICIOUS_HASHLIST: [&'static str; 9] = [
 ];
 
 use std::fmt::{Debug, Formatter};
+
+use super::ProgressMetaFinish;
 
 pub struct MaliciousHash(String);
 
@@ -76,6 +78,21 @@ impl Probe for CheckFileHashes {
 
     fn name(&self) -> String {
         "Check malicious file hashes".to_owned()
+    }
+
+    fn metadata(&self) -> Metadata {
+        Metadata {
+            name: "Check malicious file hashes".to_owned(),
+            description:
+                "Scan files and compare SHA256 hashes against a known malicious hash list."
+                    .to_owned(),
+
+            progress: ProgressMeta {
+                prefix: "🧮".to_owned(),
+                message: "Checking file hashes...".to_owned(),
+                finish: ProgressMetaFinish::WithMessage("Finished checking file hashes..."),
+            },
+        }
     }
 
     fn select(&mut self, entry: &DirEntry) -> bool {

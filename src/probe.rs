@@ -65,6 +65,27 @@ pub trait Payload: Send + Sync + Debug {
     // Maybe a method here in the future to summarize the payload for reporting
 }
 
+#[derive(Debug, Clone)]
+pub struct Metadata {
+    pub name: String,
+    pub description: String,
+    pub progress: ProgressMeta,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProgressMeta {
+    pub prefix: String,
+    pub message: String,
+    pub finish: ProgressMetaFinish,
+}
+
+#[derive(Debug, Clone)]
+pub enum ProgressMetaFinish {
+    Clear,
+    Abandon,
+    WithMessage(&'static str),
+}
+
 /// Trait for a vulnerability probe.
 ///
 /// Scanning vulnerabilities is performed in two passes:
@@ -85,7 +106,12 @@ pub trait Probe: Send + Sync {
     type Error: Send + Sync + 'static;
 
     /// Returns the human-readable name of the probe.
-    fn name(&self) -> String;
+    fn name(&self) -> String {
+        self.metadata().name.clone()
+    }
+
+    ///
+    fn metadata(&self) -> Metadata;
 
     /// Mark the directory entry to be scanned.
     ///

@@ -1,4 +1,5 @@
 mod indikatif;
+mod out;
 mod probe;
 mod report;
 mod scanner;
@@ -6,7 +7,6 @@ mod scanner;
 use std::path::PathBuf;
 
 use clap::Parser;
-use console::style;
 use eros::{Context, bail};
 
 use crate::probe::{check_file_hashes::CheckFileHashes, check_workflow_files::CheckWorkflowFiles};
@@ -54,12 +54,16 @@ fn main() -> eros::Result<()> {
         .canonicalize()
         .context("Getting absolute path of directory to scan")?;
 
-    let mut scanner = Scanner::with_probes(vec![
-        Box::new(CheckWorkflowFiles::new()),
-        Box::new(CheckFileHashes::new()),
-    ]);
+    let mut scanner = Scanner::new();
+    let scanner = scanner.with_stage(
+        "Core detection (workflows, hashes, packages, hooks)",
+        vec![
+            Box::new(CheckWorkflowFiles::new()),
+            Box::new(CheckFileHashes::new()),
+        ],
+    );
 
-    println!("{}", style("Starting Shai-Hulud detection scan...").green());
+    print_status!(GREEN, "Starting Shai-Hulud detection scan...");
     let scan_message = if cli.paranoid {
         format!(
             "Scanning directory: {} (with paranoid mode enabled)",
@@ -76,6 +80,7 @@ fn main() -> eros::Result<()> {
     report_builder.add_probe_findings(probe_findings);
     let report = report_builder.build();
 
+    print_status!(BLUE, "Generating report...");
     let reporter: Box<dyn Reporter> = match cli.output_file {
         None => Box::new(ConsoleReporter::new()),
         Some(path) => match path.extension().and_then(|s| s.to_str()) {

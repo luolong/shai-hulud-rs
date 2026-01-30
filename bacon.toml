@@ -87,7 +87,7 @@ background = true
 command = [
     "cargo", "run", "--release",
     "--",
-    "--paranoid", "../"
+    "--paranoid", "~/Developer"
     # put launch parameters for your program behind a `--` separator
 ]
 need_stdout = true

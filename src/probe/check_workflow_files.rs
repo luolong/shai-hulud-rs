@@ -1,5 +1,5 @@
 use crate::{
-    probe::{Error, Finding, Probe},
+    probe::{Error, Finding, Metadata, Probe, ProgressMeta, ProgressMetaFinish},
     scanner::DirEntry,
 };
 use std::convert::Infallible;
@@ -11,6 +11,7 @@ pub struct CheckWorkflowFiles {
     suspects: Vec<PathBuf>,
 }
 
+/// Detect malicious shai-hulud-workflow.yml files in project directories
 impl CheckWorkflowFiles {
     pub fn new() -> Self {
         Self {
@@ -31,8 +32,20 @@ impl Probe for CheckWorkflowFiles {
     type Suspect = PathBuf;
     type Error = Infallible;
 
-    fn name(&self) -> String {
-        "Checking for malicious workflow files".to_string()
+    fn metadata(&self) -> Metadata {
+        Metadata {
+            name: "Malicious workflow files".to_owned(),
+            description: "Detect malicious shai-hulud-workflow.yml files in project directories"
+                .to_owned(),
+
+            progress: ProgressMeta {
+                prefix: "📖".to_owned(),
+                message: "Checking for malicious workflow files...".to_owned(),
+                finish: ProgressMetaFinish::WithMessage(
+                    "Finished checking for malicious workflow files...",
+                ),
+            },
+        }
     }
 
     fn select(&mut self, entry: &DirEntry) -> bool {
